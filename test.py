@@ -192,68 +192,6 @@ fig, axes = plt.subplots(1, 2, figsize=(15, 6))
 
 
 
-#détection des pixels défectueux
-
-def detect_bad_pixels(offset_map, gain_map=None, sigma_threshold=5.0):
-    """
-    Détecte les pixels défectueux en analysant les statistiques de l'offset (et du gain si dispo).
-    
-    Args:
-        offset_map (np.array): Carte d'offset calculée.
-        gain_map (np.array, optionnel): Carte de gain calculée.
-        sigma_threshold (float): Nombre d'écarts-types pour considérer un pixel comme aberrant.
-                                 (5.0 est standard : très sélectif).
-    
-    Returns:
-        bad_pixel_mask (np.array): Masque binaire (1 = défectueux, 0 = bon).
-    """
-    rows, cols = offset_map.shape
-    mask = np.zeros((rows, cols), dtype=np.uint8)
-    
-    # Calcul des statistiques sur l'offset
-    mean_offset = np.mean(offset_map)
-    std_offset = np.std(offset_map)
-    
-    # Détection des pixels aberrants (au-delà de sigma_threshold écarts-types)
-    mask = np.abs(offset_map - mean_offset) > (sigma_threshold * std_offset)
-    mask = mask.astype(np.uint8)
-    
-    percent_bad = (np.sum(mask) / mask.size) * 100
-    print(f"Pixels défectueux détectés : {np.sum(mask)} ({percent_bad:.3f}%)")
-    
-    return mask
-
-def replace_bad_pixels(image, mask):
-    """
-    Remplace les pixels marqués par le masque en utilisant une médiane locale.
-    
-    Args:
-        image (np.array): Image à corriger (brute ou après NUC).
-        mask (np.array): Masque des pixels défectueux (1 pour mauvais).
-        
-    Returns:
-        corrected_img (np.array): Image avec les trous "bouchés".
-    """
-    # On s'assure que l'image est dans un format compatible (float32 recommandé pour le traitement)
-    img_copy = image.astype(np.float32)
-    
-    # 1. On calcule une version "lissée" de toute l'image (filtre médian 3x3 ou 5x5)
-    # Le filtre médian est excellent pour éliminer les pics de bruit (pixels morts)
-    median_blurred = cv2.medianBlur(img_copy, 3)
-    
-    # 2. Fusion intelligente
-    # Si le pixel est bon (mask=0), on garde l'original.
-    # Si le pixel est mauvais (mask=1), on prend la valeur du filtre médian.
-    corrected_img = np.where(mask == 1, median_blurred, img_copy)
-    
-    return corrected_img.astype(image.dtype)
-
-detected_bad_pixel_mask = detect_bad_pixels(offset_map, sigma_threshold=5.0)
-img_gain_offset_BPR = replace_bad_pixels(img_gain_offset, detected_bad_pixel_mask)
-
-fig, axes = plt.subplots(1, 2, figsize=(15, 6))
-
-
 
 #réduction du bruit temporel
 
@@ -305,10 +243,9 @@ for filename in list_images:
     
     # Pipeline complet de traitement
     frame_corr = apply_offset_correction(frame, offset_map)
-    frame_clean = replace_bad_pixels(frame_corr, detected_bad_pixel_mask)
     
     # Application du gain AVANT le filtrage temporel (recommandé)
-    frame_nuc = apply_gain(gain_map, frame_clean)
+    frame_nuc = apply_gain(gain_map, frame_corr)
     
     # Utilisation cohérente de 'accumulator'
     accumulator = temporal_noise_reduction(frame_nuc, accumulator, alpha=0.3)
